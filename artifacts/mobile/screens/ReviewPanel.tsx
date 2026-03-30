@@ -503,7 +503,7 @@ const styles = StyleSheet.create({
   actionsRow: {
     flexDirection: "row",
     gap: 14,
-    paddingBottom: 24,
+    paddingBottom: 44,
   },
   actionBtn: {
     flex: 1,

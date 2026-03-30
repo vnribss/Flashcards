@@ -11,12 +11,18 @@ router.post("/scan-cards", async (req, res) => {
     };
 
     if (!imageBase64) {
-      res.status(400).json({ error: "imageBase64 é obrigatório" });
-      return;
+      return res.status(400).json({ error: "imageBase64 é obrigatório" });
+    }
+
+    const apiKey = process.env["AI_INTEGRATIONS_GEMINI_API_KEY"];
+    
+    if (!apiKey) {
+      console.error("GEMINI API KEY não configurada");
+      return res.status(503).json({ error: "Serviço de IA indisponível. Tente novamente mais tarde." });
     }
 
     const ai = new GoogleGenAI({
-      apiKey: process.env["AI_INTEGRATIONS_GEMINI_API_KEY"] ?? "",
+      apiKey,
       httpOptions: {
         baseUrl: process.env["AI_INTEGRATIONS_GEMINI_BASE_URL"],
       },
@@ -68,10 +74,21 @@ Regras:
       data = { cards: [] };
     }
 
-    res.json(data);
+    return res.json(data);
   } catch (err) {
     console.error("scan-cards error:", err);
-    res.status(500).json({ error: "Erro ao processar imagem" });
+    
+    // Detectar tipo de erro
+    if (err instanceof Error) {
+      if (err.message.includes("API_KEY") || err.message.includes("401") || err.message.includes("Unauthorized")) {
+        return res.status(503).json({ error: "Serviço de IA indisponível. Tente novamente mais tarde." });
+      }
+      if (err.message.includes("ECONNREFUSED") || err.message.includes("ENOTFOUND") || err.message.includes("timeout")) {
+        return res.status(503).json({ error: "Falha na conexão. Verifique sua internet e tente novamente." });
+      }
+    }
+    
+    return res.status(500).json({ error: "Erro ao processar imagem. Tente novamente." });
   }
 });
 

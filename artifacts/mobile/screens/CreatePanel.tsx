@@ -92,9 +92,14 @@ export default function CreatePanel({ onDone }: Props) {
         }),
       });
 
-      if (!response.ok) throw new Error("Erro no servidor");
+      const data = await response.json() as { error?: string; cards?: { question: string; answer: string }[] };
 
-      const data = await response.json() as { cards: { question: string; answer: string }[] };
+      if (!response.ok) {
+        setScanError(data.error || "Erro ao processar a imagem. Tente novamente.");
+        setScanning(false);
+        return;
+      }
+
       const cards = data.cards ?? [];
 
       if (cards.length === 0) {
@@ -105,8 +110,11 @@ export default function CreatePanel({ onDone }: Props) {
 
       setScannedCards(cards.map((c) => ({ ...c, selected: true })));
       setShowScanModal(true);
-    } catch {
-      setScanError("Erro ao processar a imagem. Verifique sua conexão e tente novamente.");
+    } catch (err) {
+      const errorMsg = err instanceof Error && err.message.includes("Failed to fetch") 
+        ? "Falha na conexão. Verifique sua internet e tente novamente."
+        : "Erro ao processar a imagem. Tente novamente.";
+      setScanError(errorMsg);
     } finally {
       setScanning(false);
     }
@@ -133,8 +141,11 @@ export default function CreatePanel({ onDone }: Props) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ imageBase64: asset.base64, mimeType: asset.mimeType ?? "image/jpeg" }),
           });
-          if (!response.ok) throw new Error();
-          const data = await response.json() as { cards: { question: string; answer: string }[] };
+          const data = await response.json() as { error?: string; cards?: { question: string; answer: string }[] };
+          if (!response.ok) {
+            setScanError(data.error || "Erro ao processar. Tente novamente.");
+            return;
+          }
           const cards = data.cards ?? [];
           if (cards.length === 0) {
             setScanError("Não encontrei perguntas e respostas nessa imagem.");
@@ -142,8 +153,11 @@ export default function CreatePanel({ onDone }: Props) {
           }
           setScannedCards(cards.map((c) => ({ ...c, selected: true })));
           setShowScanModal(true);
-        } catch {
-          setScanError("Erro ao processar. Tente novamente.");
+        } catch (err) {
+          const errorMsg = err instanceof Error && err.message.includes("Failed to fetch")
+            ? "Falha na conexão. Verifique sua internet e tente novamente."
+            : "Erro ao processar. Tente novamente.";
+          setScanError(errorMsg);
         } finally {
           setScanning(false);
         }
