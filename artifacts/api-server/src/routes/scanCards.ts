@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const router = Router();
 
@@ -21,27 +21,24 @@ router.post("/scan-cards", async (req, res) => {
       return res.status(503).json({ error: "Serviço de IA indisponível. Tente novamente mais tarde." });
     }
 
-    const ai = new GoogleGenAI({
-      apiKey,
-      httpOptions: {
-        baseUrl: process.env["AI_INTEGRATIONS_GEMINI_BASE_URL"],
+    const genAI = new GoogleGenerativeAI(apiKey);
+
+    const model = genAI.getGenerativeModel({ 
+      model: "gemini-1.5-flash",
+      generationConfig: {
+        responseMimeType: "application/json",
       },
     });
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: [
-        {
-          role: "user",
-          parts: [
-            {
-              inlineData: {
-                mimeType: mimeType ?? "image/jpeg",
-                data: imageBase64,
-              },
-            },
-            {
-              text: `Analise esta imagem e extraia pares de perguntas e respostas para flashcards de estudo.
+    const response = await model.generateContent([
+      {
+        inlineData: {
+          mimeType: mimeType ?? "image/jpeg",
+          data: imageBase64,
+        },
+      },
+      {
+        text: `Analise esta imagem e extraia pares de perguntas e respostas para flashcards de estudo.
 
 Retorne APENAS um JSON válido com o seguinte formato, sem texto extra:
 {
@@ -55,17 +52,10 @@ Regras:
 - Se for uma lista de conteúdo, crie perguntas relevantes a partir dele
 - Seja objetivo e direto
 - Mínimo 1 card, máximo 20 cards`,
-            },
-          ],
-        },
-      ],
-      config: {
-        responseMimeType: "application/json",
-        maxOutputTokens: 8192,
       },
-    });
+    ]);
 
-    const text = response.text ?? "{}";
+    const text = response.response.text() ?? "{}";
     let data: { cards: { question: string; answer: string }[] };
 
     try {
