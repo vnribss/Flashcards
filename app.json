@@ -1,12 +1,36 @@
 {
   "expo": {
+    "name": "Flashcards",
+    "slug": "flashcards",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./artifacts/mobile/assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./artifacts/mobile/assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.vnribss.workspace"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./artifacts/mobile/assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.vnribss.workspace"
+    },
+    "web": {
+      "favicon": "./artifacts/mobile/assets/favicon.png"
+    },
     "extra": {
       "eas": {
         "projectId": "20db7b93-ea92-4a4c-9c8d-a4972b31302b"
-      }
-    },
-    "android": {
-      "package": "com.vnribss.workspace"
+      },
+      "AI_INTEGRATIONS_GEMINI_API_KEY": "AIzaSyAJXdWg-GvCr7FYVjmqcEh5yj6ECS4Do6k"
     }
   }
 }

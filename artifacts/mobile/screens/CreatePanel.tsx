@@ -12,7 +12,9 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Constants from "expo-constants";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 import Colors from "@/constants/colors";
 import { useFlashcards } from "@/context/FlashcardsContext";
@@ -27,7 +29,50 @@ type ScannedCard = {
   selected: boolean;
 };
 
-const API_BASE = `https://${process.env.EXPO_PUBLIC_DOMAIN}/api-server/api`;
+const API_KEY = Constants.expoConfig?.extra?.AI_INTEGRATIONS_GEMINI_API_KEY;
+
+async function scanImageWithGemini(imageBase64: string, mimeType: string) {
+  if (!API_KEY) {
+    throw new Error("API key não configurada");
+  }
+
+  const genAI = new GoogleGenerativeAI(API_KEY);
+  const model = genAI.getGenerativeModel({
+    model: "gemini-1.5-flash",
+    generationConfig: {
+      responseMimeType: "application/json",
+    },
+  });
+
+  const result = await model.generateContent([
+    {
+      inlineData: {
+        mimeType: mimeType ?? "image/jpeg",
+        data: imageBase64,
+      },
+    },
+    {
+      text: `Analise esta imagem e extraia pares de perguntas e respostas para flashcards de estudo.
+
+Retorne APENAS um JSON válido com o seguinte formato, sem texto extra:
+{
+  "cards": [
+    { "question": "pergunta aqui", "answer": "resposta aqui" }
+  ]
+}
+
+Regras:
+- Extraia todas as perguntas e respostas visíveis
+- Se for uma lista de conteúdo, crie perguntas relevantes a partir dele
+- Seja objetivo e direto
+- Mínimo 1 card, máximo 20 cards`,
+    },
+  ]);
+
+  const text = result.response.text() ?? "{}";
+  const data = JSON.parse(text);
+  return data.cards ?? [];
+}
 
 export default function CreatePanel({ onDone }: Props) {
   const { decks, selectedDeckId, setSelectedDeckId, addCard } = useFlashcards();
@@ -83,24 +128,7 @@ export default function CreatePanel({ onDone }: Props) {
       const asset = result.assets[0];
       const mimeType = asset.mimeType ?? "image/jpeg";
 
-      const response = await fetch(`${API_BASE}/scan-cards`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          imageBase64: asset.base64,
-          mimeType,
-        }),
-      });
-
-      const data = await response.json() as { error?: string; cards?: { question: string; answer: string }[] };
-
-      if (!response.ok) {
-        setScanError(data.error || "Erro ao processar a imagem. Tente novamente.");
-        setScanning(false);
-        return;
-      }
-
-      const cards = data.cards ?? [];
+      const cards = await scanImageWithGemini(asset.base64!, mimeType);
 
       if (cards.length === 0) {
         setScanError("Não encontrei perguntas e respostas nessa imagem. Tente outra foto.");
@@ -108,7 +136,7 @@ export default function CreatePanel({ onDone }: Props) {
         return;
       }
 
-      setScannedCards(cards.map((c) => ({ ...c, selected: true })));
+      setScannedCards(cards.map((c: { question: string; answer: string }) => ({ ...c, selected: true })));
       setShowScanModal(true);
     } catch (err) {
       const errorMsg = err instanceof Error && err.message.includes("Failed to fetch") 
@@ -136,22 +164,13 @@ export default function CreatePanel({ onDone }: Props) {
         setScanError("");
         try {
           const asset = result.assets[0];
-          const response = await fetch(`${API_BASE}/scan-cards`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ imageBase64: asset.base64, mimeType: asset.mimeType ?? "image/jpeg" }),
-          });
-          const data = await response.json() as { error?: string; cards?: { question: string; answer: string }[] };
-          if (!response.ok) {
-            setScanError(data.error || "Erro ao processar. Tente novamente.");
-            return;
-          }
-          const cards = data.cards ?? [];
+          const mimeType = asset.mimeType ?? "image/jpeg";
+          const cards = await scanImageWithGemini(asset.base64!, mimeType);
           if (cards.length === 0) {
             setScanError("Não encontrei perguntas e respostas nessa imagem.");
             return;
           }
-          setScannedCards(cards.map((c) => ({ ...c, selected: true })));
+          setScannedCards(cards.map((c: { question: string; answer: string }) => ({ ...c, selected: true })));
           setShowScanModal(true);
         } catch (err) {
           const errorMsg = err instanceof Error && err.message.includes("Failed to fetch")
