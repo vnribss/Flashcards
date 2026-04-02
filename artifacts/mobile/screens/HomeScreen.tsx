@@ -5,10 +5,12 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Alert,
 } from "react-native";
 import { Sparkles, Plus, User, MoreHorizontal } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Platform } from "react-native";
+import { useUpdateCheck } from "@/hooks/useUpdateCheck";
 
 import Colors from "@/constants/colors";
 import TopGradient from "@/components/TopGradient";
@@ -22,6 +24,7 @@ type Props = {
 
 export default function HomeScreen({ onOpenReview, onCreate }: Props) {
   const { decks, cards, selectedDeckId } = useFlashcards();
+  const { isChecking, checkForUpdates } = useUpdateCheck();
 
   return (
     <View style={styles.container}>
@@ -61,6 +64,17 @@ export default function HomeScreen({ onOpenReview, onCreate }: Props) {
             <Text style={styles.statNumber}>{cards.length}</Text>
           </View>
         </View>
+
+        <TouchableOpacity
+          onPress={checkForUpdates}
+          disabled={isChecking}
+          style={[styles.updateBtn, isChecking && styles.updateBtnDisabled]}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.updateBtnText}>
+            {isChecking ? "Verificando atualizações..." : "Buscar atualização"}
+          </Text>
+        </TouchableOpacity>
 
         <View style={styles.deckCard}>
           <View style={styles.deckHeader}>
@@ -234,6 +248,22 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: "#b1a7c6",
     marginTop: 2,
+  },
+  updateBtn: {
+    borderRadius: 12,
+    backgroundColor: Colors.secondary,
+    paddingVertical: 10,
+    alignItems: "center",
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  updateBtnDisabled: {
+    opacity: 0.6,
+  },
+  updateBtnText: {
+    color: "#fff",
+    fontWeight: "700",
+    fontSize: 14,
   },
   startBtn: {
     borderRadius: 999,

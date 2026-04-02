@@ -194,9 +194,14 @@ export default function CreatePanel({ onDone }: Props) {
       setShowScanModal(true);
     } catch (err) {
       console.error("💥 Erro no handleScan:", err);
-      const errorMsg = err instanceof Error && err.message.includes("Failed to fetch")
-        ? "Falha na conexão. Verifique sua internet e tente novamente."
-        : "Erro ao processar a imagem. Tente novamente.";
+      let errorMsg = "Erro ao processar a imagem. Tente novamente.";
+      if (err instanceof Error) {
+        if (err.message.includes("API key não configurada") || err.message.includes("API key não configurada")) {
+          errorMsg = "Chave Geminí não configurada. Verifique as variáveis de ambiente e o app.json.";
+        } else if (err.message.includes("Failed to fetch")) {
+          errorMsg = "Falha na conexão. Verifique sua internet e tente novamente.";
+        }
+      }
       setScanError(errorMsg);
     } finally {
       setScanning(false);
@@ -228,9 +233,14 @@ export default function CreatePanel({ onDone }: Props) {
           setScannedCards(cards.map((c: { question: string; answer: string }) => ({ ...c, selected: true })));
           setShowScanModal(true);
         } catch (err) {
-          const errorMsg = err instanceof Error && err.message.includes("Failed to fetch")
-            ? "Falha na conexão. Verifique sua internet e tente novamente."
-            : "Erro ao processar. Tente novamente.";
+          let errorMsg = "Erro ao processar. Tente novamente.";
+          if (err instanceof Error) {
+            if (err.message.includes("API key não configurada")) {
+              errorMsg = "Chave Gemini não configurada. Verifique as variáveis de ambiente e o app.json.";
+            } else if (err.message.includes("Failed to fetch")) {
+              errorMsg = "Falha na conexão. Verifique sua internet e tente novamente.";
+            }
+          }
           setScanError(errorMsg);
         } finally {
           setScanning(false);
