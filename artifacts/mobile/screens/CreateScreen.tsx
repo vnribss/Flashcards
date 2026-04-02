@@ -28,7 +28,7 @@ export default function CreateScreen({ onHome, onCreate }: Props) {
 
   const handleSave = () => {
     if (!question.trim() || !answer.trim()) return;
-    addCard(question, answer, newDeckName);
+    addCard(question, answer, selectedDeckId, newDeckName || undefined);
     setQuestion("");
     setAnswer("");
     setNewDeckName("");

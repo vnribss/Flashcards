@@ -31,33 +31,51 @@ type ScannedCard = {
 
 const API_KEY = Constants.expoConfig?.extra?.AI_INTEGRATIONS_GEMINI_API_KEY;
 
+console.log("🔑 API_KEY carregada:", API_KEY ? "Sim" : "Não");
+console.log("📱 Plataforma:", Platform.OS);
+console.log("🌐 É web:", Platform.OS === "web");
+
 async function scanImageWithGemini(imageBase64: string, mimeType: string) {
+  console.log("🔑 API_KEY presente:", !!API_KEY);
+  console.log("📷 Iniciando scan - tamanho da imagem:", imageBase64.length, "mimeType:", mimeType);
+  console.log("🌐 Plataforma:", Platform.OS);
+
+  if (Platform.OS === "web") {
+    throw new Error("Scan de imagens não está disponível no navegador web. Use o Expo Go no celular ou gere um APK.");
+  }
+
   if (!API_KEY) {
     throw new Error("API key não configurada");
   }
 
-  const genAI = new GoogleGenerativeAI(API_KEY);
-  const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
-    generationConfig: {
-      responseMimeType: "application/json",
-    },
-  });
+  try {
+    console.log("🤖 Inicializando GoogleGenerativeAI...");
+    const genAI = new GoogleGenerativeAI(API_KEY);
 
-  const result = await model.generateContent([
-    {
-      inlineData: {
-        mimeType: mimeType ?? "image/jpeg",
-        data: imageBase64,
+    console.log("📝 Criando modelo...");
+    const model = genAI.getGenerativeModel({
+      model: "gemini-flash-latest",
+      generationConfig: {
+        temperature: 0.1,
+        maxOutputTokens: 2048,
       },
-    },
-    {
-      text: `Analise esta imagem e extraia pares de perguntas e respostas para flashcards de estudo.
+    });
 
-Retorne APENAS um JSON válido com o seguinte formato, sem texto extra:
+    console.log("🚀 Enviando para Gemini API...");
+    const result = await model.generateContent([
+      {
+        inlineData: {
+          mimeType: mimeType ?? "image/jpeg",
+          data: imageBase64,
+        },
+      },
+      {
+        text: `Analise esta imagem e extraia pares de perguntas e respostas para flashcards de estudo.
+
+IMPORTANTE: Responda APENAS com um JSON válido no seguinte formato:
 {
   "cards": [
-    { "question": "pergunta aqui", "answer": "resposta aqui" }
+    {"question": "pergunta aqui", "answer": "resposta aqui"}
   ]
 }
 
@@ -65,13 +83,44 @@ Regras:
 - Extraia todas as perguntas e respostas visíveis
 - Se for uma lista de conteúdo, crie perguntas relevantes a partir dele
 - Seja objetivo e direto
-- Mínimo 1 card, máximo 20 cards`,
-    },
-  ]);
+- Mínimo 1 card, máximo 20 cards
+- NÃO adicione texto extra, apenas o JSON`,
+      },
+    ]);
 
-  const text = result.response.text() ?? "{}";
-  const data = JSON.parse(text);
-  return data.cards ?? [];
+    console.log("✅ Resposta recebida do Gemini");
+    const text = result.response.text() ?? "{}";
+    console.log("📄 Texto bruto da resposta:", text.substring(0, 200) + "...");
+
+    // Tentar extrair JSON da resposta (pode ter texto extra)
+    let data: { cards: { question: string; answer: string }[] };
+    
+    try {
+      // Primeiro tentar parse direto
+      data = JSON.parse(text);
+    } catch {
+      // Se falhar, tentar encontrar JSON dentro do texto
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          data = JSON.parse(jsonMatch[0]);
+        } catch {
+          console.warn("⚠️ Não conseguiu fazer parse do JSON encontrado");
+          data = { cards: [] };
+        }
+      } else {
+        console.warn("⚠️ Nenhum JSON encontrado na resposta");
+        data = { cards: [] };
+      }
+    }
+
+    console.log("🎯 Cards extraídos:", data.cards?.length || 0);
+
+    return data.cards ?? [];
+  } catch (error) {
+    console.error("💥 Erro em scanImageWithGemini:", error);
+    throw error;
+  }
 }
 
 export default function CreatePanel({ onDone }: Props) {
@@ -107,6 +156,7 @@ export default function CreatePanel({ onDone }: Props) {
   }
 
   async function handleScan() {
+    console.log("📸 Iniciando handleScan...");
     setScanError("");
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
@@ -121,10 +171,14 @@ export default function CreatePanel({ onDone }: Props) {
       allowsEditing: false,
     });
 
-    if (result.canceled || !result.assets[0]?.base64) return;
+    if (result.canceled || !result.assets[0]?.base64) {
+      console.log("❌ Scan cancelado ou sem imagem");
+      return;
+    }
 
     setScanning(true);
     try {
+      console.log("🔍 Processando imagem...");
       const asset = result.assets[0];
       const mimeType = asset.mimeType ?? "image/jpeg";
 
@@ -139,7 +193,8 @@ export default function CreatePanel({ onDone }: Props) {
       setScannedCards(cards.map((c: { question: string; answer: string }) => ({ ...c, selected: true })));
       setShowScanModal(true);
     } catch (err) {
-      const errorMsg = err instanceof Error && err.message.includes("Failed to fetch") 
+      console.error("💥 Erro no handleScan:", err);
+      const errorMsg = err instanceof Error && err.message.includes("Failed to fetch")
         ? "Falha na conexão. Verifique sua internet e tente novamente."
         : "Erro ao processar a imagem. Tente novamente.";
       setScanError(errorMsg);
@@ -225,28 +280,36 @@ export default function CreatePanel({ onDone }: Props) {
           </View>
         </View>
         <View style={styles.scanBtns}>
-          {Platform.OS !== "web" && (
-            <TouchableOpacity
-              onPress={handleScanCamera}
-              style={styles.scanBtn}
-              activeOpacity={0.8}
-              disabled={scanning}
-            >
-              <Text style={styles.scanBtnText}>Câmera</Text>
-            </TouchableOpacity>
+          {Platform.OS !== "web" ? (
+            <>
+              <TouchableOpacity
+                onPress={handleScanCamera}
+                style={styles.scanBtn}
+                activeOpacity={0.8}
+                disabled={scanning}
+              >
+                <Text style={styles.scanBtnText}>Câmera</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleScan}
+                style={[styles.scanBtn, styles.scanBtnPrimary]}
+                activeOpacity={0.8}
+                disabled={scanning}
+              >
+                {scanning ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={[styles.scanBtnText, { color: "#fff" }]}>Galeria</Text>
+                )}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <View style={styles.webMessage}>
+              <Text style={styles.webMessageText}>
+                📱 Scan disponível apenas no app mobile.{'\n'}Use Expo Go ou instale o APK.
+              </Text>
+            </View>
           )}
-          <TouchableOpacity
-            onPress={handleScan}
-            style={[styles.scanBtn, styles.scanBtnPrimary]}
-            activeOpacity={0.8}
-            disabled={scanning}
-          >
-            {scanning ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={[styles.scanBtnText, { color: "#fff" }]}>Galeria</Text>
-            )}
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -627,4 +690,19 @@ const styles = StyleSheet.create({
   },
   modalSaveBtnDisabled: { backgroundColor: Colors.textMuted, shadowOpacity: 0 },
   modalSaveText: { fontSize: 14, fontWeight: "700", color: "#fff" },
+  webMessage: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: Colors.accent,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  webMessageText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: Colors.primary,
+    textAlign: "center",
+    lineHeight: 16,
+  },
 });
