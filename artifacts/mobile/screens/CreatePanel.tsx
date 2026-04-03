@@ -3,6 +3,7 @@ import * as ImagePicker from "expo-image-picker";
 import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Modal,
   Platform,
   ScrollView,
@@ -41,6 +42,14 @@ async function scanImageWithOCR(imageData: string, mimeType = "image/jpeg") {
     : `data:${mimeType};base64,${imageData}`;
 
   console.log("🖼️ DataURL criado (primeiros 100 chars):", imageDataUrl.substring(0, 100));
+
+  if (Platform.OS !== "web") {
+    Alert.alert(
+      "OCR não disponível",
+      "O recurso de escanear imagens usando OCR só está disponível na versão web do aplicativo. Por favor, acesse pelo navegador para usar essa funcionalidade."
+    );
+    return;
+  }
 
   // Tentar diferentes idiomas se necessário
   const languages = ['eng', 'por'];
