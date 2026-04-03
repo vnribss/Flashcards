@@ -1,6 +1,6 @@
 import { Camera, CheckCircle2, Plus, X } from "lucide-react-native";
 import * as ImagePicker from "expo-image-picker";
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -14,10 +14,13 @@ import {
 } from "react-native";
 import Constants from "expo-constants";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { createWorker } from "tesseract.js";
+
+import { generateFlashcards } from "@/utils/flashcardGenerator";
 
 import Colors from "@/constants/colors";
 import { useFlashcards } from "@/context/FlashcardsContext";
+import type { Deck } from "@/context/FlashcardsContext";
 
 type Props = {
   onDone: () => void;
@@ -29,96 +32,100 @@ type ScannedCard = {
   selected: boolean;
 };
 
-const API_KEY = Constants.expoConfig?.extra?.AI_INTEGRATIONS_GEMINI_API_KEY;
+async function scanImageWithOCR(imageData: string, mimeType = "image/jpeg") {
+  console.log("🔍 Iniciando OCR com Tesseract.js...");
+  console.log("📊 Dados da imagem - tamanho:", imageData.length, "tipo:", mimeType);
 
-console.log("🔑 API_KEY carregada:", API_KEY ? "Sim" : "Não");
-console.log("📱 Plataforma:", Platform.OS);
-console.log("🌐 É web:", Platform.OS === "web");
+  const imageDataUrl = imageData.startsWith("data:")
+    ? imageData
+    : `data:${mimeType};base64,${imageData}`;
 
-async function scanImageWithGemini(imageBase64: string, mimeType: string) {
-  console.log("🔑 API_KEY presente:", !!API_KEY);
-  console.log("📷 Iniciando scan - tamanho da imagem:", imageBase64.length, "mimeType:", mimeType);
-  console.log("🌐 Plataforma:", Platform.OS);
+  console.log("🖼️ DataURL criado (primeiros 100 chars):", imageDataUrl.substring(0, 100));
 
-  if (Platform.OS === "web") {
-    throw new Error("Scan de imagens não está disponível no navegador web. Use o Expo Go no celular ou gere um APK.");
+  // Tentar diferentes idiomas se necessário
+  const languages = ['eng', 'por'];
+
+  for (const lang of languages) {
+    try {
+      console.log(`🤖 Tentando OCR com idioma: ${lang}`);
+      const worker = await createWorker(lang);
+
+      console.log("📷 Processando imagem...");
+      const result = await worker.recognize(imageDataUrl);
+      const { data: { text, confidence } } = result;
+
+      console.log(`📊 Confiança do OCR (${lang}):`, confidence);
+      console.log(`📄 Texto extraído (${lang}) (completo):`, `"${text}"`);
+      console.log("📏 Comprimento do texto:", text.length);
+
+      await worker.terminate();
+
+      if (text && text.trim()) {
+        console.log(`✅ Texto encontrado com idioma: ${lang}`);
+
+        // Usar IA para gerar flashcards estruturados
+        const flashcards = await generateFlashcards(text, {
+          onLoading: (loading) => {
+            console.log('🤖 Gerando flashcards com IA:', loading ? 'iniciando' : 'concluído');
+          }
+        });
+
+        console.log("🎯 Flashcards gerados:", flashcards.length);
+
+        return flashcards.map(card => ({
+          question: card.pergunta,
+          answer: card.resposta
+        }));
+      } else {
+        console.log(`⚠️ Nenhum texto encontrado com idioma: ${lang}, tentando próximo...`);
+      }
+
+    } catch (error) {
+      console.error(`💥 Erro com idioma ${lang}:`, error);
+      alert(`Erro no OCR com idioma ${lang}: ${error instanceof Error ? error.message : String(error)}`);
+      // Continua para o próximo idioma
+    }
   }
 
-  if (!API_KEY) {
-    throw new Error("API key não configurada");
-  }
-
-  try {
-    console.log("🤖 Inicializando GoogleGenerativeAI...");
-    const genAI = new GoogleGenerativeAI(API_KEY);
-
-    console.log("📝 Criando modelo...");
-    const model = genAI.getGenerativeModel({
-      model: "gemini-flash-latest",
-      generationConfig: {
-        temperature: 0.1,
-        maxOutputTokens: 2048,
-      },
-    });
-
-    console.log("🚀 Enviando para Gemini API...");
-    const result = await model.generateContent([
-      {
-        inlineData: {
-          mimeType: mimeType ?? "image/jpeg",
-          data: imageBase64,
-        },
-      },
-      {
-        text: `Analise esta imagem e extraia pares de perguntas e respostas para flashcards de estudo.
-
-IMPORTANTE: Responda APENAS com um JSON válido no seguinte formato:
-{
-  "cards": [
-    {"question": "pergunta aqui", "answer": "resposta aqui"}
-  ]
+  console.warn("⚠️ Nenhum texto detectado com nenhum idioma");
+  alert("Nenhum texto detectado em nenhum idioma. Verifique se a imagem tem texto claro em português ou inglês.");
+  return [];
 }
 
-Regras:
-- Extraia todas as perguntas e respostas visíveis
-- Se for uma lista de conteúdo, crie perguntas relevantes a partir dele
-- Seja objetivo e direto
-- Mínimo 1 card, máximo 20 cards
-- NÃO adicione texto extra, apenas o JSON`,
-      },
-    ]);
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    console.log("📁 Convertendo arquivo para dataURL...");
+    console.log("📊 Arquivo - nome:", file.name, "tamanho:", file.size, "tipo:", file.type);
 
-    console.log("✅ Resposta recebida do Gemini");
-    const text = result.response.text() ?? "{}";
-    console.log("📄 Texto bruto da resposta:", text.substring(0, 200) + "...");
-
-    // Tentar extrair JSON da resposta (pode ter texto extra)
-    let data: { cards: { question: string; answer: string }[] };
-    
-    try {
-      // Primeiro tentar parse direto
-      data = JSON.parse(text);
-    } catch {
-      // Se falhar, tentar encontrar JSON dentro do texto
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try {
-          data = JSON.parse(jsonMatch[0]);
-        } catch {
-          console.warn("⚠️ Não conseguiu fazer parse do JSON encontrado");
-          data = { cards: [] };
-        }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result === 'string') {
+        console.log("✅ DataURL criado com sucesso, tamanho:", result.length);
+        resolve(result);
       } else {
-        console.warn("⚠️ Nenhum JSON encontrado na resposta");
-        data = { cards: [] };
+        reject(new Error('Falha ao ler arquivo como data URL'));
       }
-    }
+    };
+    reader.onerror = (error) => {
+      console.error("❌ Erro no FileReader:", error);
+      reject(error);
+    };
+    reader.readAsDataURL(file);
+  });
+}
 
-    console.log("🎯 Cards extraídos:", data.cards?.length || 0);
-
-    return data.cards ?? [];
+async function handleWebFile(file: File): Promise<ScannedCard[]> {
+  console.log("🌐 Processando arquivo da web...");
+  try {
+    const dataUrl = await fileToDataUrl(file);
+    console.log("🔍 Iniciando OCR na imagem web...");
+    const flashcards = await scanImageWithOCR(dataUrl);
+    console.log("✅ OCR concluído, flashcards:", flashcards.length);
+    return flashcards.map((c) => ({ question: c.question, answer: c.answer, selected: true }));
   } catch (error) {
-    console.error("💥 Erro em scanImageWithGemini:", error);
+    console.error('💥 Erro no handleWebFile:', error);
+    alert('Erro ao processar arquivo: ' + (error instanceof Error ? error.message : String(error)));
     throw error;
   }
 }
@@ -133,6 +140,9 @@ export default function CreatePanel({ onDone }: Props) {
   const [scannedCards, setScannedCards] = useState<ScannedCard[]>([]);
   const [showScanModal, setShowScanModal] = useState(false);
   const [scanError, setScanError] = useState("");
+
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
@@ -156,6 +166,11 @@ export default function CreatePanel({ onDone }: Props) {
   }
 
   async function handleScan() {
+    if (Platform.OS === "web") {
+      galleryInputRef.current?.click();
+      return;
+    }
+
     console.log("📸 Iniciando handleScan...");
     setScanError("");
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -180,12 +195,11 @@ export default function CreatePanel({ onDone }: Props) {
     try {
       console.log("🔍 Processando imagem...");
       const asset = result.assets[0];
-      const mimeType = asset.mimeType ?? "image/jpeg";
 
-      const cards = await scanImageWithGemini(asset.base64!, mimeType);
+      const cards = await scanImageWithOCR(asset.base64!);
 
       if (cards.length === 0) {
-        setScanError("Não encontrei perguntas e respostas nessa imagem. Tente outra foto.");
+        setScanError("Não encontrei texto nessa imagem. Possíveis causas:\n• Texto muito pequeno ou borrado\n• Imagem de baixa qualidade\n• Fundo muito complexo\n• Texto não está em português ou inglês\n\nDicas: Use uma foto nítida, com texto grande e fundo claro.");
         setScanning(false);
         return;
       }
@@ -196,10 +210,8 @@ export default function CreatePanel({ onDone }: Props) {
       console.error("💥 Erro no handleScan:", err);
       let errorMsg = "Erro ao processar a imagem. Tente novamente.";
       if (err instanceof Error) {
-        if (err.message.includes("API key não configurada") || err.message.includes("API key não configurada")) {
-          errorMsg = "Chave Geminí não configurada. Verifique as variáveis de ambiente e o app.json.";
-        } else if (err.message.includes("Failed to fetch")) {
-          errorMsg = "Falha na conexão. Verifique sua internet e tente novamente.";
+        if (err.message.includes("não está disponível")) {
+          errorMsg = err.message;
         }
       }
       setScanError(errorMsg);
@@ -209,6 +221,11 @@ export default function CreatePanel({ onDone }: Props) {
   }
 
   function handleScanCamera() {
+    if (Platform.OS === "web") {
+      cameraInputRef.current?.click();
+      return;
+    }
+
     ImagePicker.requestCameraPermissionsAsync().then(({ status }) => {
       if (status !== "granted") {
         setScanError("Permissão para usar a câmera é necessária.");
@@ -224,10 +241,9 @@ export default function CreatePanel({ onDone }: Props) {
         setScanError("");
         try {
           const asset = result.assets[0];
-          const mimeType = asset.mimeType ?? "image/jpeg";
-          const cards = await scanImageWithGemini(asset.base64!, mimeType);
+          const cards = await scanImageWithOCR(asset.base64!);
           if (cards.length === 0) {
-            setScanError("Não encontrei perguntas e respostas nessa imagem.");
+            setScanError("Não encontrei texto nessa imagem.");
             return;
           }
           setScannedCards(cards.map((c: { question: string; answer: string }) => ({ ...c, selected: true })));
@@ -235,10 +251,8 @@ export default function CreatePanel({ onDone }: Props) {
         } catch (err) {
           let errorMsg = "Erro ao processar. Tente novamente.";
           if (err instanceof Error) {
-            if (err.message.includes("API key não configurada")) {
-              errorMsg = "Chave Gemini não configurada. Verifique as variáveis de ambiente e o app.json.";
-            } else if (err.message.includes("Failed to fetch")) {
-              errorMsg = "Falha na conexão. Verifique sua internet e tente novamente.";
+            if (err.message.includes("não está disponível")) {
+              errorMsg = err.message;
             }
           }
           setScanError(errorMsg);
@@ -247,6 +261,25 @@ export default function CreatePanel({ onDone }: Props) {
         }
       });
     });
+  }
+
+  async function onWebFileSelected(file: File) {
+    setScanError("");
+    setScanning(true);
+    try {
+      const webCards = await handleWebFile(file);
+      if (webCards.length === 0) {
+        setScanError("Não encontrei texto nessa imagem. Tente outra foto.");
+        return;
+      }
+      setScannedCards(webCards);
+      setShowScanModal(true);
+    } catch (err) {
+      console.error('Erro ao processar imagem web:', err);
+      setScanError('Erro ao processar imagem web. Verifique o console para mais detalhes.');
+    } finally {
+      setScanning(false);
+    }
   }
 
   function toggleCard(index: number) {
@@ -286,7 +319,7 @@ export default function CreatePanel({ onDone }: Props) {
           </View>
           <View>
             <Text style={styles.scanBannerTitle}>Escanear imagem</Text>
-            <Text style={styles.scanBannerSub}>A IA extrai as perguntas e respostas automaticamente</Text>
+            <Text style={styles.scanBannerSub}>OCR + IA criam flashcards automaticamente</Text>
           </View>
         </View>
         <View style={styles.scanBtns}>
@@ -314,10 +347,51 @@ export default function CreatePanel({ onDone }: Props) {
               </TouchableOpacity>
             </>
           ) : (
-            <View style={styles.webMessage}>
-              <Text style={styles.webMessageText}>
-                📱 Scan disponível apenas no app mobile.{'\n'}Use Expo Go ou instale o APK.
-              </Text>
+            <View style={styles.webActions}>
+              <TouchableOpacity
+                onPress={handleScanCamera}
+                style={styles.scanBtn}
+                activeOpacity={0.8}
+                disabled={scanning}
+              >
+                <Text style={styles.scanBtnText}>Câmera (Web)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleScan}
+                style={[styles.scanBtn, styles.scanBtnPrimary]}
+                activeOpacity={0.8}
+                disabled={scanning}
+              >
+                {scanning ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={[styles.scanBtnText, { color: "#fff" }]}>Galeria (Web)</Text>
+                )}
+              </TouchableOpacity>
+
+              <input
+                ref={(el) => { galleryInputRef.current = el; }}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={(event) => {
+                  const file = event.target?.files?.[0];
+                  if (file) onWebFileSelected(file);
+                  if (event.target) event.target.value = '';
+                }}
+              />
+              <input
+                ref={(el) => { cameraInputRef.current = el; }}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                style={{ display: 'none' }}
+                onChange={(event) => {
+                  const file = event.target?.files?.[0];
+                  if (file) onWebFileSelected(file);
+                  if (event.target) event.target.value = '';
+                }}
+              />
             </View>
           )}
         </View>
@@ -341,7 +415,7 @@ export default function CreatePanel({ onDone }: Props) {
             <Text style={styles.label}>MATÉRIA</Text>
             <Text style={styles.labelHint}>Selecione uma existente</Text>
             <View style={styles.deckList}>
-              {decks.map((deck) => (
+              {decks.map((deck: Deck) => (
                 <TouchableOpacity
                   key={deck.id}
                   onPress={() => { setSelectedDeckId(deck.id); setNewDeckName(""); }}
@@ -517,6 +591,7 @@ const styles = StyleSheet.create({
   scanBannerTitle: { fontSize: 15, fontWeight: "700", color: Colors.textDark },
   scanBannerSub: { fontSize: 12, color: Colors.textMuted, marginTop: 2 },
   scanBtns: { flexDirection: "row", gap: 8 },
+  webActions: { flexDirection: "row", gap: 8, alignItems: "center" },
   scanBtn: {
     paddingHorizontal: 16,
     paddingVertical: 10,

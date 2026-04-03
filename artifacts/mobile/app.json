@@ -55,8 +55,7 @@
     "extra": {
       "eas": {
         "projectId": "e045280d-f9dc-47cf-9c30-274b44335350"
-      },
-      "AI_INTEGRATIONS_GEMINI_API_KEY": "AIzaSyCffAzIiAE6O0pPgjvBXSAnwvgzlRx5nZY"
+      }
     },
     "owner": "vnribss"
   }

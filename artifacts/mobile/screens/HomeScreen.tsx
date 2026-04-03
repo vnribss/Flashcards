@@ -251,7 +251,7 @@ const styles = StyleSheet.create({
   },
   updateBtn: {
     borderRadius: 12,
-    backgroundColor: Colors.secondary,
+    backgroundColor: Colors.accent,
     paddingVertical: 10,
     alignItems: "center",
     marginTop: 12,
