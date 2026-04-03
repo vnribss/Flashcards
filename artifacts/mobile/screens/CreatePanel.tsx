@@ -17,7 +17,7 @@ import Constants from "expo-constants";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { createWorker } from "tesseract.js";
 
-import { generateFlashcards } from "@/utils/flashcardGenerator";
+import { callAIWithImage, generateFlashcards } from "@/utils/flashcardGenerator";
 
 import Colors from "@/constants/colors";
 import { useFlashcards } from "@/context/FlashcardsContext";
@@ -44,12 +44,15 @@ async function scanImageWithOCR(imageData: string, mimeType = "image/jpeg") {
   console.log("🖼️ DataURL criado (primeiros 100 chars):", imageDataUrl.substring(0, 100));
 
   if (Platform.OS !== "web") {
-    Alert.alert(
-      "OCR não disponível",
-      "O recurso de escanear imagens usando OCR só está disponível na versão web do aplicativo. Por favor, acesse pelo navegador para usar essa funcionalidade."
-    );
-    return;
-  }
+  const flashcards = await callAIWithImage(imageDataUrl, mimeType);
+
+  console.log("🎯 Flashcards gerados:", flashcards.length);
+
+  return flashcards.map((card) => ({
+    question: card.pergunta,
+    answer: card.resposta,
+  }));
+}
 
   // Tentar diferentes idiomas se necessário
   const languages = ['eng', 'por'];
@@ -73,11 +76,17 @@ async function scanImageWithOCR(imageData: string, mimeType = "image/jpeg") {
         console.log(`✅ Texto encontrado com idioma: ${lang}`);
 
         // Usar IA para gerar flashcards estruturados
-        const flashcards = await generateFlashcards(text, {
-          onLoading: (loading) => {
-            console.log('🤖 Gerando flashcards com IA:', loading ? 'iniciando' : 'concluído');
-          }
-        });
+        const flashcards =
+          Platform.OS === "web"
+           ? await generateFlashcards(text, {
+            onLoading: (loading) => {
+          console.log(
+            "🤖 Gerando flashcards com IA:",
+            loading ? "iniciando" : "finalizado"
+          );
+        },
+      })
+    : await callAIWithImage(imageDataUrl, mimeType);
 
         console.log("🎯 Flashcards gerados:", flashcards.length);
 

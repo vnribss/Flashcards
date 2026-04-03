@@ -215,3 +215,96 @@ IMPORTANTE: Responda apenas com o JSON, sem texto adicional.`;
     throw error;
   }
 }
+
+export async function callAIWithImage(
+  imageDataUrl: string,
+  mimeType = "image/jpeg"
+): Promise<Flashcard[]> {
+  const apiKey =
+    Constants.expoConfig?.extra?.OPENROUTER_KEY ||
+    process.env.EXPO_PUBLIC_OPENROUTER_KEY ||
+    process.env.VITE_OPENROUTER_KEY ||
+    process.env.OPENROUTER_KEY;
+
+  if (!apiKey) {
+    throw new Error("OPENROUTER_KEY não configurada");
+  }
+
+  const prompt = `
+Você vai analisar a imagem enviada e criar flashcards de estudo.
+
+Objetivo:
+- extrair o conteúdo principal da imagem
+- transformar em flashcards curtos e úteis
+- responder em português
+- devolver APENAS um JSON válido
+
+Formato obrigatório:
+[
+  {
+    "question": "pergunta",
+    "answer": "resposta"
+  }
+]
+
+Regras:
+- crie entre 3 e 10 flashcards, se houver conteúdo suficiente
+- não invente conteúdo que não esteja visível
+- se a imagem tiver pouco texto, gere poucos cards
+- sem markdown
+- sem explicação fora do JSON
+`;
+
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "google/gemini-2.5-flash",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: prompt,
+            },
+            {
+              type: "image_url",
+              image_url: {
+                url: imageDataUrl.startsWith("data:")
+                  ? imageDataUrl
+                  : `data:${mimeType};base64,${imageDataUrl}`,
+              },
+            },
+          ],
+        },
+      ],
+      max_tokens: 1500,
+      temperature: 0.3,
+    }),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data?.error?.message || "Erro ao chamar OpenRouter com imagem");
+  }
+
+  const content = data?.choices?.[0]?.message?.content;
+
+  if (!content) {
+    throw new Error("Resposta vazia da IA");
+  }
+
+  const cleaned = String(content).trim().replace(/^```json/, "").replace(/^```/, "").replace(/```$/, "").trim();
+  const parsed = JSON.parse(cleaned);
+
+  if (!Array.isArray(parsed)) {
+    throw new Error("A IA não retornou uma lista de flashcards");
+  }
+
+  return parsed;
+}
