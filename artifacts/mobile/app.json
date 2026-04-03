@@ -53,6 +53,7 @@
       "reactCompiler": true
     },
     "extra": {
+      "OPENROUTER_KEY": "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",
       "eas": {
         "projectId": "e045280d-f9dc-47cf-9c30-274b44335350"
       }
