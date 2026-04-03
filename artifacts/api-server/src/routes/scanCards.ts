@@ -1,27 +1,36 @@
 import { Router } from "express";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { logger } from "../lib/logger";
 
 const router = Router();
 
 router.post("/scan-cards", async (req, res) => {
+  const startTime = Date.now();
+  const requestId = req.id || `unknown-${Date.now()}`;
+  
   try {
+    logger.info({ requestId, imageSize: req.body?.imageBase64?.length }, "📸 scan-cards request iniciada");
+    
     const { imageBase64, mimeType } = req.body as {
       imageBase64: string;
       mimeType: string;
     };
 
     if (!imageBase64) {
+      logger.warn({ requestId }, "❌ imageBase64 não fornecido");
       return res.status(400).json({ error: "imageBase64 é obrigatório" });
     }
 
     const apiKey = process.env["AI_INTEGRATIONS_GEMINI_API_KEY"];
     
     if (!apiKey) {
-      console.error("GEMINI API KEY não configurada");
+      logger.error({ requestId }, "❌ GEMINI API KEY não configurada - verifique env: AI_INTEGRATIONS_GEMINI_API_KEY");
       return res.status(503).json({ error: "Serviço de IA indisponível. Tente novamente mais tarde." });
     }
 
-    const genAI = new GoogleGenerativeAI(apiKey);
+    logger.info({ requestId }, "🔑 API Key configurada, inicializando GenAI...");
+    
+    const genAI = new GoogleGenerativeAI(apiKey, { apiVersion: "v1" });
 
     const model = genAI.getGenerativeModel({ 
       model: "gemini-1.5-flash",
@@ -29,6 +38,9 @@ router.post("/scan-cards", async (req, res) => {
         responseMimeType: "application/json",
       },
     });
+
+    logger.info({ requestId, mimeType: mimeType ?? "image/jpeg" }, "⏳ Enviando request para Gemini API...");
+    const geminiStartTime = Date.now();
 
     const response = await model.generateContent([
       {
@@ -55,25 +67,48 @@ Regras:
       },
     ]);
 
+    const geminiDuration = Date.now() - geminiStartTime;
+    logger.info({ requestId, geminiDurationMs: geminiDuration }, "✅ Resposta recebida do Gemini");
+
     const text = response.response.text() ?? "{}";
     let data: { cards: { question: string; answer: string }[] };
 
     try {
       data = JSON.parse(text);
-    } catch {
+      logger.info({ requestId, cardCount: data.cards?.length ?? 0 }, "✨ JSON parseado com sucesso");
+    } catch (parseErr) {
+      logger.warn({ requestId, parseError: parseErr instanceof Error ? parseErr.message : String(parseErr), rawText: text?.substring(0, 200) }, "⚠️ Erro ao fazer parse do JSON, retornando cards vazios");
       data = { cards: [] };
     }
 
+    const totalDuration = Date.now() - startTime;
+    logger.info({ requestId, totalDurationMs: totalDuration, cardsReturned: data.cards?.length ?? 0 }, "🎉 scan-cards finalizado com sucesso");
+    
     return res.json(data);
   } catch (err) {
-    console.error("scan-cards error:", err);
+    const totalDuration = Date.now() - startTime;
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const errorStack = err instanceof Error ? err.stack : undefined;
+    
+    logger.error(
+      { 
+        requestId, 
+        totalDurationMs: totalDuration,
+        errorMessage,
+        errorStack,
+        errorName: err instanceof Error ? err.constructor.name : typeof err,
+      }, 
+      "💥 Error em scan-cards"
+    );
     
     // Detectar tipo de erro
     if (err instanceof Error) {
       if (err.message.includes("API_KEY") || err.message.includes("401") || err.message.includes("Unauthorized")) {
+        logger.error({ requestId }, "🔐 Erro de autenticação com Gemini API");
         return res.status(503).json({ error: "Serviço de IA indisponível. Tente novamente mais tarde." });
       }
       if (err.message.includes("ECONNREFUSED") || err.message.includes("ENOTFOUND") || err.message.includes("timeout")) {
+        logger.error({ requestId }, "🌐 Erro de conexão com Gemini API");
         return res.status(503).json({ error: "Falha na conexão. Verifique sua internet e tente novamente." });
       }
     }
